@@ -1,14 +1,11 @@
 # Team DeepSpeed Team 2
 
-> **TODO before submitting:** fill in every `TODO` (team name, members, results,
-> machine). The results must come from your own `./scripts/evaluate.sh` runs:
-> copy them, unedited, into `results/submitted/`
-> ([§7.1](docs/07-submission.md#71-what-to-submit)).
-
 ## Members
-| Deshpande Hridyan Hrishikesh| U2623931A | HRIDYANH001@e.ntu.edu.sg |
-| CHENG ZONG YONG LEONARD | M2622241F | Lcheng016@e.ntu.edu.sg|
-| TODO | TODO | TODO |
+| Name | Matric number | Email |
+| --- | --- | --- |
+| Deshpande Hridyan Hrishikesh | U2623931A | HRIDYANH001@e.ntu.edu.sg |
+| CHENG ZONG YONG LEONARD | M2622241F | Lcheng016@e.ntu.edu.sg |
+| Aarav Kharbanda|  |aarav005@e.ntu.edu.sg|
 
 ## Approach
 
@@ -212,7 +209,7 @@ tune parts of a controller that already worked, dropping the residual
 network), chose and ran the experiments, and judged the results on the
 official referee. 
 
-TODO: list any other tools (ChatGPT, Copilot, …) and what they were used for.
+We used no other AI tools.
 
 ## Known issues
 - **No obstacle braking with the speed table.** Speed ignores the LiDAR, which
