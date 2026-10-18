@@ -72,6 +72,7 @@ Numbers, the "what if we double it" table and the list of failures are at the en
 - [7.3 What do your parity tests check?](#73-what-do-your-parity-tests-check)
 - [7.4 The judging machine is different. What changes?](#74-the-judging-machine-is-different-what-changes)
 - [7.5 Why not train in ROS directly?](#75-why-not-train-in-ros-directly)
+- [7.6 Your GitHub Judge run was disqualified. What happened?](#76-your-github-judge-run-was-disqualified-what-happened)
 
 **8. The ROS node and the engineering**
 - [8.1 What happens at startup and on every scan?](#81-what-happens-at-startup-and-on-every-scan)
@@ -115,7 +116,7 @@ sends the table's speed. Lap times went ~27 s → under 18 s → 16.68 s → ~13
 
 **Go deeper:**
 - Startup: [`load_clearance_map()`](../race_ws/src/team_driver/team_driver/raceline.py#L146) → [`build_raceline()`](../race_ws/src/team_driver/team_driver/raceline.py#L30) → [`speed_table()`](../race_ws/src/team_driver/team_driver/raceline.py#L110) → [`load_speed_table()`](../race_ws/src/team_driver/team_driver/policies.py#L133) and [`load_lookahead()`](../race_ws/src/team_driver/team_driver/policies.py#L99).
-- Every scan: [`Driver.plan()`](../race_ws/src/team_driver/team_driver/driver.py#L230) → [`lookahead()`](../race_ws/src/team_driver/team_driver/policies.py#L52) → [`pure_pursuit()`](../race_ws/src/team_driver/team_driver/pure_pursuit.py#L51) → publish on `/drive`.
+- Every scan: [`Driver.plan()`](../race_ws/src/team_driver/team_driver/driver.py#L242) → [`lookahead()`](../race_ws/src/team_driver/team_driver/policies.py#L52) → [`pure_pursuit()`](../race_ws/src/team_driver/team_driver/pure_pursuit.py#L51) → publish on `/drive`.
 - The whole tick costs about 0.1 ms of maths, about 1% of a 0.01 s physics step.
 
 **If they push:**
@@ -809,6 +810,44 @@ in `results/submitted/` show what our machine did.
 **In one line:** ROS runs one car in real time; the JAX simulator runs 2,048
 cars much faster than real time, so 40 M steps take 10 minutes instead of weeks.
 
+#### 7.6 Your GitHub Judge run was disqualified. What happened?
+
+**In one line:** The driver froze once for 0.72 s right after the start, the
+car drove blind into a wall, and the speed table kept it pinned there until 11
+collisions disqualified it; we found it in the logs and added a recovery that
+reverses off the wall.
+
+**Explain:**
+1. **Symptom.** GitHub's Judge check: 0 laps, 11 collisions, disqualified. Our
+   own runs: clean 13.7 s laps.
+2. **Evidence.** The driver logs its reaction delay every 200 scans. One line
+   read `gap mean 1.4 max 72`: for 72 simulator steps (0.72 s) the driver
+   answered no scans, while the simulator kept driving the car on its last
+   command. Every other line showed `gap max 1`. The collision log then shows
+   the car hitting the same spot, (−3.64, 3.48), over and over.
+3. **Not a one-off machine problem.** Our own logs showed the same kind of
+   freeze (52–54 steps) in 2 of 6 local runs, always in the first 1–2 seconds;
+   those runs were just luckier about where the car was.
+4. **Fix.** We couldn't find the freeze's cause before the deadline, so we
+   limited its damage: [`Driver.unstick()`](../race_ws/src/team_driver/team_driver/driver.py#L266)
+   reverses for 0.5 s when the car is told to go but hasn't moved for 0.5 s.
+   A freeze now costs one or two collisions (+10–20 s) instead of the run.
+
+**Go deeper:** The rules note exactly this failure: a car stuck on a wall is
+disqualified after about 11 seconds of contact (`docs/05-evaluation.md`), since
+the referee counts a collision per second. The un-stick timer uses the
+simulator's own clock, so a paused simulator can't trigger it, and at the start
+the car passes 0.3 m/s within about 0.05 s, far below the 0.5 s needed.
+
+**If they push:**
+- *"Why reverse with the steering flipped?"* A car going backwards with the
+  wheels turned right rotates left, so flipping the steering swings the nose
+  the way pure pursuit wanted to turn.
+- *"What causes the freeze?"* Honest answer: not yet known. It happens with and
+  without RViz, only at startup. Candidates: something blocking the driver's
+  process (e.g. a first large message publish, or ROS discovery), or CPU
+  starvation on small machines. Next step would be timing each callback.
+
 ---
 
 ### 8. The ROS node and the engineering
@@ -848,6 +887,7 @@ statements on numbers inside those functions: JAX can't compile them.
 - No odometry yet: send speed 0.
 - The policy outputs something silly: L is clipped to 0.35–4 m.
 - Settings changed since training: log a warning (it names the changed settings).
+- Pinned against a wall: reverse for 0.5 s, then drive on ([7.6](#76-your-github-judge-run-was-disqualified-what-happened)).
 
 #### 8.4 Why a queue length of 1?
 
@@ -921,6 +961,8 @@ than we trained for.
    It is only read by `ros2 launch`; the judges use `ros2 run`, which uses the
    defaults in code.
 5. **The line minimises bending, not lap time.**
+6. **A one-off startup freeze** of about 0.5–0.7 s, cause unknown; the
+   un-stick limits it to a collision or two ([7.6](#76-your-github-judge-run-was-disqualified-what-happened)).
 
 #### 9.6 What would you do with another week?
 
@@ -1038,6 +1080,7 @@ don't affect the race. They matter only if the learned files are off or rejected
 | LiDAR emergency brake | 0.3 s per lap slower, no safer | `evaluate.py` at delays 0–14 |
 | Learned curvature-based lookahead | Learned ≈ the hand rule | The weights in `lookahead.npz` |
 | Residual neural network | Never trained to a shippable model | No shippable run; moved to `unused/` |
+| No recovery when pinned on a wall | One startup freeze → pinned → 11 collisions → disqualified (GitHub Judge) | Driver's delay log (`gap max 72`) and the bridge's collision log; fixed with `unstick()` |
 
 ### Experiments we can describe
 

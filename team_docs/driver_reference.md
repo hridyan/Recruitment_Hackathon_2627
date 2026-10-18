@@ -68,7 +68,7 @@ pkill -f team_driver                           # lost the driver?
 
 | File | What it does | Main functions |
 | --- | --- | --- |
-| [team_driver/driver.py](../race_ws/src/team_driver/team_driver/driver.py) | The ROS node: parameters, startup, callbacks, publishing | [`Driver.build_path()`](../race_ws/src/team_driver/team_driver/driver.py#L99), [`Driver.build_speed_table()`](../race_ws/src/team_driver/team_driver/driver.py#L123), [`Driver.load_policy()`](../race_ws/src/team_driver/team_driver/driver.py#L152), [`Driver.plan()`](../race_ws/src/team_driver/team_driver/driver.py#L230), [`Driver.scan_callback()`](../race_ws/src/team_driver/team_driver/driver.py#L199) |
+| [team_driver/driver.py](../race_ws/src/team_driver/team_driver/driver.py) | The ROS node: parameters, startup, callbacks, publishing | [`Driver.build_path()`](../race_ws/src/team_driver/team_driver/driver.py#L111), [`Driver.build_speed_table()`](../race_ws/src/team_driver/team_driver/driver.py#L135), [`Driver.load_policy()`](../race_ws/src/team_driver/team_driver/driver.py#L164), [`Driver.plan()`](../race_ws/src/team_driver/team_driver/driver.py#L242), [`Driver.scan_callback()`](../race_ws/src/team_driver/team_driver/driver.py#L211) |
 | [team_driver/pure_pursuit.py](../race_ws/src/team_driver/team_driver/pure_pursuit.py) | Steering and speed for one tick. No ROS, numpy or JAX | [`pure_pursuit()`](../race_ws/src/team_driver/team_driver/pure_pursuit.py#L51), [`preprocess()`](../race_ws/src/team_driver/team_driver/pure_pursuit.py#L45), [`DEFAULTS`](../race_ws/src/team_driver/team_driver/pure_pursuit.py#L16) |
 | [team_driver/raceline.py](../race_ws/src/team_driver/team_driver/raceline.py) | Clearance map, racing line, physics speed table | [`load_clearance_map()`](../race_ws/src/team_driver/team_driver/raceline.py#L146), [`build_raceline()`](../race_ws/src/team_driver/team_driver/raceline.py#L30), [`speed_table()`](../race_ws/src/team_driver/team_driver/raceline.py#L110), [`limit_speed_changes()`](../race_ws/src/team_driver/team_driver/raceline.py#L120) |
 | [team_driver/policies.py](../race_ws/src/team_driver/team_driver/policies.py) | Everything learned: lookahead policy, speed-table loader, PPO losses | [`lookahead_inputs()`](../race_ws/src/team_driver/team_driver/policies.py#L45), [`lookahead()`](../race_ws/src/team_driver/team_driver/policies.py#L52), [`load_lookahead()`](../race_ws/src/team_driver/team_driver/policies.py#L99), [`load_speed_table()`](../race_ws/src/team_driver/team_driver/policies.py#L133) |
@@ -87,9 +87,9 @@ agree.
 
 ### One control tick, step by step
 
-This is [`Driver.plan()`](../race_ws/src/team_driver/team_driver/driver.py#L230), called from [`Driver.scan_callback()`](../race_ws/src/team_driver/team_driver/driver.py#L199).
+This is [`Driver.plan()`](../race_ws/src/team_driver/team_driver/driver.py#L242), called from [`Driver.scan_callback()`](../race_ws/src/team_driver/team_driver/driver.py#L211).
 
-1. **No odometry yet?** Send speed 0 and steering 0. ([`Driver.odom_callback()`](../race_ws/src/team_driver/team_driver/driver.py#L191) stores each odometry message.)
+1. **No odometry yet?** Send speed 0 and steering 0. ([`Driver.odom_callback()`](../race_ws/src/team_driver/team_driver/driver.py#L203) stores each odometry message.)
 2. **Choose the lookahead L.** If the lookahead policy is loaded, [`lookahead_inputs()`](../race_ws/src/team_driver/team_driver/policies.py#L45) and [`lookahead()`](../race_ws/src/team_driver/team_driver/policies.py#L52) compute
    `L = b + w · [v, |κ0|, |κ1|, |κ2|, |κ1|−|κ0|]`, clipped to 0.35–4 m.
    Otherwise pure pursuit uses `max(min_lookahead, lookahead_gain·v)`.
@@ -100,9 +100,12 @@ This is [`Driver.plan()`](../race_ws/src/team_driver/team_driver/driver.py#L230)
    - compute the steering `atan(wheelbase·κ)`, clipped to ±`max_steer`
    - read the speed from the table, at the nearest point (+ `speed_lead`
      term, off by default)
-4. **Publish** an `AckermannDriveStamped` on `/drive` ([`Driver.publish()`](../race_ws/src/team_driver/team_driver/driver.py#L253)). Every 10th scan, also
-   publish RViz markers on `/driver/markers` ([`Driver.publish_markers()`](../race_ws/src/team_driver/team_driver/driver.py#L264)).
-   Every 200 scans, [`Driver.measure_delay()`](../race_ws/src/team_driver/team_driver/driver.py#L211) logs the reaction delay.
+4. **Un-stick** ([`Driver.unstick()`](../race_ws/src/team_driver/team_driver/driver.py#L266)): if the car
+   is pinned against a wall, reverse for 0.5 s first (see
+   [Safety and fallbacks](#safety-and-fallbacks)).
+5. **Publish** an `AckermannDriveStamped` on `/drive` ([`Driver.publish()`](../race_ws/src/team_driver/team_driver/driver.py#L294)). Every 10th scan, also
+   publish RViz markers on `/driver/markers` ([`Driver.publish_markers()`](../race_ws/src/team_driver/team_driver/driver.py#L305)).
+   Every 200 scans, [`Driver.measure_delay()`](../race_ws/src/team_driver/team_driver/driver.py#L223) logs the reaction delay.
 
 ---
 
@@ -205,6 +208,11 @@ The two learned parts, both trained with PPO in [training/](../training/README.m
 - **Odometry.** The position is the rear axle, which pure pursuit's geometry
   assumes. Yaw comes from the quaternion: for a car turning only about the
   vertical axis, z = sin(yaw/2) and w = cos(yaw/2).
+- **`unstick()`.** Constants at the top of the file: `STUCK_SPEED` 0.3 m/s,
+  `STUCK_COMMAND` 1 m/s, `STUCK_TIME` 0.5 s, `REVERSE_SPEED` −1 m/s,
+  `REVERSE_TIME` 0.5 s. Reversing with the steering *flipped* swings the nose
+  the same way pure pursuit wanted to turn: with the wheels turned right, a car
+  going backwards rotates left. The timer uses the odometry's simulated time.
 - **`measure_delay()`.** Scans and odometry carry the simulator's clock. *Age*
   = steps between the scan and the newest odometry when the command goes out
   (the true delay is at least this); *gap* = steps between answered scans
@@ -215,7 +223,7 @@ The two learned parts, both trained with PPO in [training/](../training/README.m
 ## Parameters
 
 Each one is a ROS parameter (`-p name:=value`). The race values are the
-defaults in [`DEFAULTS`](../race_ws/src/team_driver/team_driver/pure_pursuit.py#L16) and [`Driver.setup_parameters()`](../race_ws/src/team_driver/team_driver/driver.py#L77). The judges
+defaults in [`DEFAULTS`](../race_ws/src/team_driver/team_driver/pure_pursuit.py#L16) and [`Driver.setup_parameters()`](../race_ws/src/team_driver/team_driver/driver.py#L89). The judges
 pass **no parameter file**.
 
 ### Driving (`pure_pursuit.DEFAULTS`)
@@ -240,7 +248,7 @@ Each name links to its line in [`DEFAULTS`](../race_ws/src/team_driver/team_driv
 
 ### Files, topics and switches (`Driver.setup_parameters`)
 
-All of these are declared in [`Driver.setup_parameters()`](../race_ws/src/team_driver/team_driver/driver.py#L77).
+All of these are declared in [`Driver.setup_parameters()`](../race_ws/src/team_driver/team_driver/driver.py#L89).
 
 | Name | Default | What it does |
 | --- | --- | --- |
@@ -284,6 +292,19 @@ is in [training/README.md](../training/README.md).
 | A model file is missing, or `use_*:=false` | Skips it; plain pure pursuit still drives |
 | Lookahead policy outputs something silly | Clipped to 0.35–4 m |
 | Scans pile up | Subscriptions have queue depth 1, so old scans are dropped and we always answer the newest |
+| Pinned against a wall (told to go faster than 1 m/s, but moving under 0.3 m/s for 0.5 s) | Reverses at 1 m/s for 0.5 s with the steering flipped, logs `stuck at (x, y): reversing for 0.5 s`, then drives on |
+
+**Why the un-stick exists.** Sometimes the driver freezes for about 0.5–0.7 s
+in its first 1–2 seconds of driving (a `gap max` of 50–72 in its first
+reaction-delay log line; seen in 2 of 6 of our local runs and on GitHub's
+Judge run). The simulator keeps running the car on its last command, so it can
+drive blind into a wall. Without the un-stick, the speed table then kept
+pushing the car into that wall, the referee counted a collision every second,
+and after 11 the run was disqualified (that is what happened on GitHub).
+With it, a freeze costs one or two collisions (+10–20 s) instead. All its
+timings use simulated time, so a paused simulator never triggers it. The
+cause of the freeze itself is not yet known: it happens with and without RViz
+or Foxglove.
 
 ## Known limitations
 
@@ -295,6 +316,8 @@ is in [training/README.md](../training/README.md).
 - **A "settings changed" warning appears at every startup.** It names
   `table_scale` and `speed_lead`, which were added after the models were saved.
   It is harmless.
+- **A one-off driver freeze at startup.** See [Safety and fallbacks](#safety-and-fallbacks):
+  the un-stick limits the damage, but the freeze's cause is not yet known.
 - **No extra packages need declaring.** `raceline.py` imports `scipy`,
   `Pillow` (`PIL`) and `PyYAML`, and rule 33 lists all three as already
   installed in the image, so `requirements.txt` is empty.

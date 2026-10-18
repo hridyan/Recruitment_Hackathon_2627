@@ -662,7 +662,7 @@ neither file knows `table_scale` or `speed_lead`).
 If any check fails, a policy trained here would race a different controller
 from the one it learned with. Each prints the largest difference it found.
 
-1. **Moving the code changed nothing.** It fetches the original [`plan()`](../race_ws/src/team_driver/team_driver/driver.py#L230)
+1. **Moving the code changed nothing.** It fetches the original [`plan()`](../race_ws/src/team_driver/team_driver/driver.py#L242)
    from `driver.py` at commit `0c2a770` (with `git show`) and compares it
    with [`pure_pursuit()`](../race_ws/src/team_driver/team_driver/pure_pursuit.py#L51) on 1000 random situations: must agree to 1e-9.
    **Needs git history**: it fails in a copy without `.git` or a shallow

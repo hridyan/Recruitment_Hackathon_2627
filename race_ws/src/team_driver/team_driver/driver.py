@@ -9,6 +9,7 @@ The maths lives in ROS-free modules so training/ runs the same code. Topics: /sc
     on odometry   remember where the car is and how fast        odom_callback()
     on each scan  the lookahead policy picks how far to aim     policies.py
                   pure pursuit picks steering and speed         pure_pursuit.py
+                  if pinned against a wall, back off first      unstick()
                   send the command on /drive                    scan_callback()
 """
 
@@ -36,6 +37,13 @@ from team_driver.units import Array, Metres, MetresPerSecond, Radians, Seconds
 SIM_STEP = 0.01           # [s] one physics step of the race simulator
 DELAY_REPORT_EVERY = 200  # scans between reaction-delay reports in the log
 
+# Un-sticking (see unstick()): all times are simulated seconds.
+STUCK_SPEED = 0.3         # [m/s] slower than this, while told to go, counts as stuck
+STUCK_COMMAND = 1.0       # [m/s] ... "told to go" = commanded faster than this
+STUCK_TIME = 0.5          # [s]   stuck this long -> reverse
+REVERSE_SPEED = -1.0      # [m/s]
+REVERSE_TIME = 0.5        # [s]
+
 
 class Driver(Node):
     """The "driver" node. All slow work happens in __init__, before the car moves."""
@@ -59,6 +67,10 @@ class Driver(Node):
         self.odom_stamp: Seconds | None = None    # simulation time of the newest odometry
         self.last_scan_stamp: Seconds | None = None
         self.ages, self.gaps = [], []             # [sim steps]
+
+        # Un-sticking (see unstick()), in simulated seconds.
+        self.stuck_since: Seconds | None = None
+        self.reverse_until: Seconds | None = None
 
         # 7. Topics, last.
         self.drive_pub = self.create_publisher(AckermannDriveStamped, self.param('drive_topic'), 10)
@@ -247,7 +259,36 @@ class Driver(Node):
         steering, speed, _, _ = pure_pursuit(
             self.path, car, self.yaw, self.speed, ranges, angles, self.params,
             lookahead=distance, speed_table=self.speeds)
-        return float(steering), float(speed)
+
+        # 3. Pinned against a wall? Back off first.
+        return self.unstick(float(steering), float(speed))
+
+    def unstick(self, steering: Radians, speed: MetresPerSecond) -> tuple[Radians, MetresPerSecond]:
+        """Back off a wall the car is pinned against; otherwise pass the command through.
+
+        Stuck = commanded over STUCK_COMMAND but moving under STUCK_SPEED for STUCK_TIME (sim
+        time, so a paused simulator never triggers it). Then reverse at REVERSE_SPEED for
+        REVERSE_TIME with the steering flipped, which swings the nose back towards the line.
+        Without this, a car pinned on a wall collects a collision a second and is disqualified.
+        """
+        now = self.odom_stamp
+        if now is None:
+            return steering, speed
+        if self.reverse_until is not None:
+            if now < self.reverse_until:
+                return -steering, REVERSE_SPEED
+            self.reverse_until = None
+            self.stuck_since = None
+        if speed > STUCK_COMMAND and self.speed < STUCK_SPEED:
+            if self.stuck_since is None:
+                self.stuck_since = now
+            elif now - self.stuck_since >= STUCK_TIME:
+                self.reverse_until = now + REVERSE_TIME
+                self.get_logger().warn(f'stuck at {self.position}: reversing for {REVERSE_TIME} s')
+                return -steering, REVERSE_SPEED
+        else:
+            self.stuck_since = None
+        return steering, speed
 
     # ---- Output ----
     def publish(self, steering: Radians, speed: MetresPerSecond) -> None:

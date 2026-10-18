@@ -54,7 +54,9 @@ does all the slow work once, before the car moves:
    steer along the circle that passes through the car and the point L metres
    ahead, limited to ±0.42 rad.
 4. **Speed**: read from the table at the nearest point.
-5. Send the command on `/drive`. Every 200 scans the driver also logs how late
+5. **Un-stick**: if the car is pinned against a wall (told to go but not
+   moving for 0.5 s), reverse for 0.5 s first.
+6. Send the command on `/drive`. Every 200 scans the driver also logs how late
    it is reacting (see section 6).
 
 ## 4. The two learned parts
@@ -99,6 +101,13 @@ judges' headless mode (faster, so more delay) hit walls. We fixed it by:
   one;
 - logging the measured delay, so we can see it instead of guessing.
 
+That log then found a second problem: sometimes the driver **freezes once for
+about 0.5–0.7 s** in its first seconds of driving. The car drives blind, can hit
+a wall, and the speed table then kept it pinned there until the referee
+disqualified it after 11 collisions (this happened on GitHub's Judge check).
+The driver now **reverses off a wall** when it is stuck, so a freeze costs a
+collision or two instead of the run. The cause of the freeze is not yet known.
+
 ## 7. What we tried that did not work
 
 - **A residual neural network** that corrected pure pursuit's steering and
@@ -121,6 +130,7 @@ tuned speed table ~13.7 s.
 - The speed ignores obstacles: fine on an empty track, not in traffic.
 - The tuned table belongs to one racing line; change the map or `wall_gap`
   and the driver falls back to the slower physics table.
+- The startup freeze (section 6) is limited, not cured.
 - Delays longer than 12 steps are untested; `table_scale` (e.g. 0.95) slows
   the whole table down as a safety margin.
 

@@ -1,4 +1,4 @@
-# Team TODO-team-name
+# Team DeepSpeed Team 2
 
 > **TODO before submitting:** fill in every `TODO` (team name, members, results,
 > machine). The results must come from your own `./scripts/evaluate.sh` runs:
@@ -6,8 +6,8 @@
 > ([§7.1](docs/07-submission.md#71-what-to-submit)).
 
 ## Members
-| Name | Matric number | Email |
-| --- | --- | --- |
+| Deshpande Hridyan Hrishikesh| U2623931A | HRIDYANH001@e.ntu.edu.sg |
+| CHENG ZONG YONG LEONARD | M2622241F | Lcheng016@e.ntu.edu.sg|
 | TODO | TODO | TODO |
 
 ## Approach
@@ -79,18 +79,29 @@ The runs committed in `results/submitted/`, summarised.
 
 | Best lap | 10-lap total | Collisions | Runs attempted |
 | --- | --- | --- | --- |
-| TODO | TODO | TODO | TODO |
+| 13.71 s | 137.1 s | 0 | 3 (all `COMPLETE`) |
+
+All three runs (`DeepSpeed_Team_2__20261018T085655Z_r1`–`r3`) were headless
+(`./scripts/evaluate.sh --team "DeepSpeed Team 2" --runs 3 --headless`) and
+identical: 13.71 s best lap, 137.1 s for the 10 timed laps, no collisions, at a
+real-time factor of 1.45–1.50.
 
 ### The machine that produced them
 | CPU | GPU | RAM | OS | Typical real-time factor |
 | --- | --- | --- | --- | --- |
-| TODO (e.g. AMD Ryzen 7 260) | TODO | TODO (e.g. 16 GB) | TODO (e.g. Windows 11 + WSL2) | TODO |
+| AMD Ryzen 7 260 (8 cores, 16 threads) | NVIDIA GeForce RTX 5060 Laptop GPU | 32 GB (16 GB visible to WSL2) | Windows 11, WSL2 with Ubuntu 26.04 LTS | about 1.5 headless, about 1.1 with RViz (0.9–1.6 over our runs) |
 
 **Things that might explain a gap between your numbers and ours:**
 - The speed table was trained to tolerate reaction delays of 0–12 simulator
   steps (0–0.12 s). A much slower machine could exceed that.
 - The driver logs its measured delay every 200 scans ("reaction delay over 200
   scans …"), so the judges' logs will show whether that happened.
+- Sometimes the driver freezes once for about 0.5–0.7 s in its first 1–2
+  seconds of driving (its first "reaction delay" log line then shows a
+  `gap max` of 50–72; seen in 2 of 6 of our runs and on GitHub's Judge run).
+  If the car hits a wall during it, the driver now reverses off the wall
+  ("stuck at (x, y): reversing for 0.5 s" in the log), so it costs one or two
+  collisions rather than the run.
 - Every startup prints a harmless warning: "pure pursuit settings changed since
   the policy was trained: ['table_scale', 'speed_lead']". Those two settings
   were added after the model files were saved, and both are at neutral values.
@@ -211,6 +222,9 @@ TODO: list any other tools (ChatGPT, Copilot, …) and what they were used for.
 - **The tuned table is tied to one racing line.** Changing the map, `wall_gap`
   or `raceline_iters` makes the driver fall back to the slower physics table
   until it is retrained.
+- **A one-off startup freeze, cause unknown.** See "Things that might explain
+  a gap" above. The un-stick recovery (`Driver.unstick()`) limits the damage;
+  the next step would be timing each callback to find the cause.
 - **Reaction delays beyond 12 steps are untested.** `table_scale` (e.g. 0.95)
   is the quick safety margin.
 - **`config/driver_params.yaml` holds older values** (e.g.
